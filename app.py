@@ -15,6 +15,7 @@ st.title("📈 Estrategias Smart Investment")
 
 st.caption(
     "En la Estrategia 1 se puede ver el rendimiento con riesgo **RECOMENDADO** y riesgo **MEDIO**."
+    
     "En la Estrategia 2 solo hay un tipo de riesgo que es el **RECOMENDADO**."
 )
 
