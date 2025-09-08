@@ -11,11 +11,11 @@ import altair as alt
 from pathlib import Path
 
 st.set_page_config(page_title="Estrategias • Recomendado y Medio", layout="wide")
-st.title("📈 Estrategias con riesgo Recomendado y Medio (2 archivos)")
+st.title("📈 Estrategias Smart Investment")
 
 st.caption(
-    "Cada pestaña carga un archivo Excel distinto con hojas **RECOMENDADO** y **MEDIO**. "
-    "Se muestran KPIs, gráfico de % anual, y resumen mensual."
+    "En la Estrategia 1 se puede ver el rendimiento con riesgo **RECOMENDADO** y riesgo **MEDIO**."
+    "En la Estrategia 2 solo hay un tipo de riesgo que es el **RECOMENDADO**."
 )
 
 # =============================
