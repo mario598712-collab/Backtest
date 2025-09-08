@@ -43,7 +43,6 @@ def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
-    # Usa la columna Profit/PROFIT si existe; si no, infiere desde Balance
     if "PROFIT" in df.columns:
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
     elif "Profit" in df.columns:
@@ -62,7 +61,6 @@ def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _equity_series(df: pd.DataFrame) -> pd.Series:
-    # Equity preferente desde Balance; si no, PnL acumulado
     if "Balance" in df.columns:
         eq = pd.to_numeric(df["Balance"], errors="coerce").fillna(method="ffill").fillna(0.0)
     else:
@@ -78,7 +76,6 @@ def _max_drawdown_pct(equity: pd.Series) -> float:
 
 
 def _annual_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
-    # % anual = (equity último del año / equity primero del año - 1) * 100
     if "YEAR" not in df.columns or df["YEAR"].isna().all():
         return pd.DataFrame({"YEAR": [], "annual_pct": []})
     if "Time" in df.columns:
@@ -94,7 +91,6 @@ def _annual_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _monthly_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
-    # % mensual = (equity último del mes / equity primero del mes - 1) * 100
     if "Time" not in df.columns:
         return pd.DataFrame({"YM": [], "monthly_pct": []})
     tmp = df.sort_values("Time").copy()
@@ -108,7 +104,7 @@ def _monthly_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
-    xl = pd.ExcelFile(ruta_excel)
+    xl = pd.ExcelFile(ruta_excel, engine="openpyxl")  # 👈 engine forzado
     present = {s.lower(): s for s in xl.sheet_names}
     load_order = []
     for key, label in [("recomendado", "Recomendado"), ("medio", "Medio")]:
@@ -119,7 +115,7 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
         st.stop()
     frames = []
     for sheet_orig, label in load_order:
-        df = pd.read_excel(xl, sheet_name=sheet_orig)
+        df = pd.read_excel(xl, sheet_name=sheet_orig, engine="openpyxl")  # 👈 engine forzado
         df = _parse_time(df)
         df = _ensure_profit(df)
         df["RIESGO"] = label
