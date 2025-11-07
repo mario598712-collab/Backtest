@@ -176,7 +176,7 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     else:
         rendimiento_mensual = monto * (avg_monthly_pct / 100.0)
 
-    st.success(f"La ganancia promedio al mes sería de: ${rendimiento_mensual:,.2f} MXN")
+    st.success(f"Ganancia promedio mensual: ${rendimiento_mensual:,.2f} MXN")
 
     st.divider()
 
