@@ -15,7 +15,8 @@ st.title("📈 Estrategia Smart Investment")
 
 st.caption(
     "Este dashboard lee un único Excel con hojas 'RECOMENDADO' y/o 'MEDIO'. "
-    "Soporta columnas ligeras: Time, AÑO, DIVISA, Type, Order, LLAVE, Profit/PROFIT y/o Balance."
+    "Soporta columnas ligeras: Time, AÑO, DIVISA, Type, Order, LLAVE, Profit/PROFIT y/o Balance. "
+    "El único filtro disponible es AÑO."
 )
 
 # =============================
@@ -116,7 +117,6 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
 
     # Si no hay las hojas clásicas, intenta cargar la primera que exista
     if not load_order:
-        # Usa la primera hoja y etiqueta como 'Recomendado'
         first_sheet = xl.sheet_names[0]
         load_order = [(first_sheet, "Recomendado")]
 
@@ -126,6 +126,7 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
         # Mantiene las columnas ligeras y normaliza PROFIT/AÑO/TIME
         df = _parse_time(df)
         df = _ensure_profit(df)
+        # Se conserva la columna, pero NO se usa para filtrar
         df["RIESGO"] = label
         frames.append(df)
 
@@ -134,23 +135,18 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
 def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     st.header(nombre)
 
-    # --- Filtros principales ---
-    st.sidebar.markdown(f"### Filtros — {nombre}")
+    # --- Filtro ÚNICO: AÑO ---
+    st.sidebar.markdown(f"### Filtro — {nombre}")
+    df = data.copy()
 
-    # Riesgo (si solo hay una hoja, será un único valor)
-    riesgos = list(data["RIESGO"].dropna().unique())
-    riesgo = st.sidebar.selectbox(
-        f"Perfil de riesgo ({nombre})", options=riesgos, index=0, key=f"riesgo_{nombre}"
-    )
-    df = data[data["RIESGO"] == riesgo].copy()
-
-    # Años
     if df["YEAR"].notna().any():
         y_min, y_max = int(df["YEAR"].min()), int(df["YEAR"].max())
         y1, y2 = st.sidebar.slider(
-            f"Rango de años ({nombre})", y_min, y_max, (y_min, y_max), key=f"years_{nombre}"
+            "Rango de años", y_min, y_max, (y_min, y_max), key=f"years_{nombre}"
         )
         df = df[(df["YEAR"] >= y1) & (df["YEAR"] <= y2)]
+    else:
+        st.sidebar.info("No hay columna de año. Asegura incluir 'Time' o 'AÑO'.")
 
     # --- KPIs ---
     pnl = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
@@ -254,3 +250,5 @@ if data is None:
     st.stop()
 
 _render_dashboard(data, nombre="Estrategia")
+
+#    Time  AÑO  DIVISA  Type  Order  LLAVE  Profit  PROFIT  Balance
