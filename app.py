@@ -152,25 +152,6 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         )
         df = df[(df["YEAR"] >= y1) & (df["YEAR"] <= y2)]
 
-    # Filtros ligeros adicionales si existen
-    if "DIVISA" in df.columns:
-        divisas = sorted([x for x in df["DIVISA"].dropna().unique()])
-        sel_div = st.sidebar.multiselect("DIVISA", options=divisas, default=divisas)
-        df = df[df["DIVISA"].isin(sel_div)]
-
-    if "Type" in df.columns:
-        tipos = sorted([x for x in df["Type"].dropna().unique()])
-        sel_type = st.sidebar.multiselect("Type", options=tipos, default=tipos)
-        df = df[df["Type"].isin(sel_type)]
-
-    if "Order" in df.columns:
-        orders = sorted([x for x in df["Order"].dropna().unique()])
-        sel_ord = st.sidebar.multiselect("Order", options=orders, default=orders)
-        df = df[df["Order"].isin(sel_ord)]
-
-    if "Time" in df.columns:
-        df = df.sort_values("Time").reset_index(drop=True)
-
     # --- KPIs ---
     pnl = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
     trades = int(len(pnl))
