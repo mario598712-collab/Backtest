@@ -1,9 +1,5 @@
-# app.py — Una sola estrategia con resumen anual/mensual (archivo ligero)
+# app.py — Una sola estrategia con resumen anual/mensual + simulador
 # ---------------------------------------------------------------
-# Requisitos: ver requirements.txt
-# Ejecución local: streamlit run app.py
-# ---------------------------------------------------------------
-
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -22,14 +18,13 @@ st.caption(
 # RUTA RELATIVA DE TU ARCHIVO
 # =============================
 BASE = Path(__file__).parent
-RUTA_ESTRAT = BASE / "data" / "STREAMLIT.xlsx"  # 👈 Solo un archivo
+RUTA_ESTRAT = BASE / "data" / "STREAMLIT.xlsx"
 
 # =============================
 # UTILIDADES
 # =============================
 
 def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
-    # Maneja Time y/o AÑO
     if "Time" in df.columns:
         df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
         df["AÑO"]  = df["Time"].dt.year
@@ -42,18 +37,13 @@ def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
-    # Prioriza PROFIT si ya existe
     if "PROFIT" in df.columns:
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
         return df
-
-    # Si viene como 'Profit', normaliza a 'PROFIT'
     if "Profit" in df.columns:
-        df = df.rename(columns={"Profit": "PROFIT"})
+        df.rename(columns={"Profit": "PROFIT"}, inplace=True)
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
         return df
-
-    # Si no hay PROFIT/Profit pero sí Balance, derivamos el PnL por diferencia
     if "Balance" in df.columns:
         if "Time" in df.columns:
             df = df.sort_values("Time").reset_index(drop=True)
@@ -62,8 +52,6 @@ def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
         bal = pd.to_numeric(df["Balance"], errors="coerce").ffill().fillna(0.0)
         df["PROFIT"] = bal.diff().fillna(bal)
         return df
-
-    # Fallback
     df["PROFIT"] = 0.0
     return df
 
@@ -108,43 +96,35 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
     xl = pd.ExcelFile(ruta_excel, engine="openpyxl")
     present = {s.lower(): s for s in xl.sheet_names}
 
-    # Cargar en este orden si existen (archivo ligero puede tener sólo una hoja)
     load_order = []
     for key, label in [("recomendado", "Recomendado"), ("medio", "Medio")]:
         if key in present:
             load_order.append((present[key], label))
 
-    # Si no hay las hojas clásicas, intenta cargar la primera que exista
     if not load_order:
-        # Usa la primera hoja y etiqueta como 'Recomendado'
         first_sheet = xl.sheet_names[0]
         load_order = [(first_sheet, "Recomendado")]
 
     frames = []
     for sheet_orig, label in load_order:
         df = pd.read_excel(xl, sheet_name=sheet_orig, engine="openpyxl")
-        # Mantiene las columnas ligeras y normaliza PROFIT/AÑO/TIME
         df = _parse_time(df)
         df = _ensure_profit(df)
         df["RIESGO"] = label
         frames.append(df)
-
     return pd.concat(frames, ignore_index=True)
 
 def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     st.header(nombre)
 
-    # --- Filtros principales ---
+    # --- Filtros ---
     st.sidebar.markdown(f"### Filtros — {nombre}")
-
-    # Riesgo (si solo hay una hoja, será un único valor)
     riesgos = list(data["RIESGO"].dropna().unique())
     riesgo = st.sidebar.selectbox(
         f"Perfil de riesgo ({nombre})", options=riesgos, index=0, key=f"riesgo_{nombre}"
     )
     df = data[data["RIESGO"] == riesgo].copy()
 
-    # Años
     if df["YEAR"].notna().any():
         y_min, y_max = int(df["YEAR"].min()), int(df["YEAR"].max())
         y1, y2 = st.sidebar.slider(
@@ -152,22 +132,18 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         )
         df = df[(df["YEAR"] >= y1) & (df["YEAR"] <= y2)]
 
-    # Filtros ligeros adicionales si existen
     if "DIVISA" in df.columns:
         divisas = sorted([x for x in df["DIVISA"].dropna().unique()])
         sel_div = st.sidebar.multiselect("DIVISA", options=divisas, default=divisas)
         df = df[df["DIVISA"].isin(sel_div)]
-
     if "Type" in df.columns:
         tipos = sorted([x for x in df["Type"].dropna().unique()])
         sel_type = st.sidebar.multiselect("Type", options=tipos, default=tipos)
         df = df[df["Type"].isin(sel_type)]
-
     if "Order" in df.columns:
         orders = sorted([x for x in df["Order"].dropna().unique()])
         sel_ord = st.sidebar.multiselect("Order", options=orders, default=orders)
         df = df[df["Order"].isin(sel_ord)]
-
     if "Time" in df.columns:
         df = df.sort_values("Time").reset_index(drop=True)
 
@@ -197,6 +173,51 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     with c6:
         st.metric("Máx. drawdown", f"{max_dd_pct:.1f}%")
 
+    # =============================
+    # 🧮 SIMULADOR (nuevo apartado)
+    # =============================
+    st.divider()
+    st.subheader("🧮 Simulador con % Promedio Mensual")
+
+    colA, colB, colC = st.columns([1.2, 0.8, 1.0])
+    capital = colA.number_input("Capital a invertir", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
+    meses   = colB.number_input("Meses", min_value=1, value=1, step=1)
+    compuesto = colC.checkbox("Reinvertir ganancias (interés compuesto)", value=True)
+
+    tasa_mensual = max(0.0, avg_monthly_pct) / 100.0  # evita negativos si quieres ser conservador; cámbialo si prefieres permitir negativos
+    if compuesto:
+        valor_final = capital * ((1 + tasa_mensual) ** meses)
+    else:
+        valor_final = capital + (capital * tasa_mensual * meses)
+
+    ganancia_est = valor_final - capital
+
+    mc1, mc2 = st.columns(2)
+    mc1.metric("Ganancia estimada", f"${ganancia_est:,.2f}")
+    mc2.metric("Valor final estimado", f"${valor_final:,.2f}")
+
+    with st.expander("Ver proyección mes a mes"):
+        # tabla mes a mes (hasta 240 filas para no reventar la UI)
+        m = int(min(meses, 240))
+        rows = []
+        saldo = capital
+        for i in range(1, m + 1):
+            if compuesto:
+                gan = saldo * tasa_mensual
+                saldo_fin = saldo + gan
+            else:
+                gan = capital * tasa_mensual
+                saldo_fin = saldo + gan
+            rows.append({"Mes": i, "Saldo inicial": saldo, "Ganancia del mes": gan, "Saldo final": saldo_fin})
+            saldo = saldo_fin
+        df_proj = pd.DataFrame(rows)
+        df_proj["Saldo inicial"] = df_proj["Saldo inicial"].round(2)
+        df_proj["Ganancia del mes"] = df_proj["Ganancia del mes"].round(2)
+        df_proj["Saldo final"] = df_proj["Saldo final"].round(2)
+        st.dataframe(df_proj, use_container_width=True)
+
+    st.caption("El cálculo usa el **% Promedio mensual** mostrado arriba. Es una referencia histórica; no es garantía de resultados futuros.")
+
     st.divider()
 
     # --- Gráfico anual ---
@@ -209,16 +230,17 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
             .encode(
                 x=alt.X("YEAR:O", title="Año"),
                 y=alt.Y("annual_pct:Q", title="% Ganancia o Pérdida"),
-                tooltip=[alt.Tooltip("YEAR:O", title="Año"),
-                         alt.Tooltip("annual_pct:Q", title="%", format=".1f")],
+                tooltip=[
+                    alt.Tooltip("YEAR:O", title="Año"),
+                    alt.Tooltip("annual_pct:Q", title="%", format=".1f"),
+                ],
             )
             .properties(height=340)
         )
         labels = (
             alt.Chart(annual_sorted)
             .mark_text(dy=-6)
-            .encode(x="YEAR:O", y="annual_pct:Q",
-                    text=alt.Text("annual_pct:Q", format=".0f"))
+            .encode(x="YEAR:O", y="annual_pct:Q", text=alt.Text("annual_pct:Q", format=".0f"))
         )
         st.altair_chart(chart + labels, use_container_width=True)
     else:
@@ -260,7 +282,6 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
 # =============================
 # CARGA Y RENDER
 # =============================
-
 def _safe_load(path: Path):
     try:
         return _load_data_from_path(path)
