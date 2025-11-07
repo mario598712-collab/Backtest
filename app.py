@@ -30,7 +30,6 @@ RUTA_ESTRAT = BASE / "data" / "STREAMLIT.xlsx"  # 👈 Solo un archivo
 # =============================
 
 def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
-    # Maneja Time y/o AÑO
     if "Time" in df.columns:
         df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
         df["AÑO"]  = df["Time"].dt.year
@@ -43,18 +42,13 @@ def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
-    # Prioriza PROFIT si ya existe
     if "PROFIT" in df.columns:
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
         return df
-
-    # Si viene como 'Profit', normaliza a 'PROFIT'
     if "Profit" in df.columns:
         df = df.rename(columns={"Profit": "PROFIT"})
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
         return df
-
-    # Si no hay PROFIT/Profit pero sí Balance, derivamos el PnL por diferencia
     if "Balance" in df.columns:
         if "Time" in df.columns:
             df = df.sort_values("Time").reset_index(drop=True)
@@ -63,8 +57,6 @@ def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
         bal = pd.to_numeric(df["Balance"], errors="coerce").ffill().fillna(0.0)
         df["PROFIT"] = bal.diff().fillna(bal)
         return df
-
-    # Fallback
     df["PROFIT"] = 0.0
     return df
 
@@ -109,13 +101,10 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
     xl = pd.ExcelFile(ruta_excel, engine="openpyxl")
     present = {s.lower(): s for s in xl.sheet_names}
 
-    # Cargar en este orden si existen (archivo ligero puede tener sólo una hoja)
     load_order = []
     for key, label in [("recomendado", "Recomendado"), ("medio", "Medio")]:
         if key in present:
             load_order.append((present[key], label))
-
-    # Si no hay las hojas clásicas, intenta cargar la primera que exista
     if not load_order:
         first_sheet = xl.sheet_names[0]
         load_order = [(first_sheet, "Recomendado")]
@@ -123,27 +112,22 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
     frames = []
     for sheet_orig, label in load_order:
         df = pd.read_excel(xl, sheet_name=sheet_orig, engine="openpyxl")
-        # Mantiene las columnas ligeras y normaliza PROFIT/AÑO/TIME
         df = _parse_time(df)
         df = _ensure_profit(df)
-        # Se conserva la columna, pero NO se usa para filtrar
-        df["RIESGO"] = label
+        df["RIESGO"] = label  # se conserva, no se usa para filtrar
         frames.append(df)
 
     return pd.concat(frames, ignore_index=True)
 
 def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     st.header(nombre)
-
-    # --- Filtro ÚNICO: AÑO ---
     st.sidebar.markdown(f"### Filtro — {nombre}")
+
     df = data.copy()
 
     if df["YEAR"].notna().any():
         y_min, y_max = int(df["YEAR"].min()), int(df["YEAR"].max())
-        y1, y2 = st.sidebar.slider(
-            "Rango de años", y_min, y_max, (y_min, y_max), key=f"years_{nombre}"
-        )
+        y1, y2 = st.sidebar.slider("Rango de años", y_min, y_max, (y_min, y_max))
         df = df[(df["YEAR"] >= y1) & (df["YEAR"] <= y2)]
     else:
         st.sidebar.info("No hay columna de año. Asegura incluir 'Time' o 'AÑO'.")
@@ -159,16 +143,40 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     monthly = _monthly_returns_pct(df)
     avg_monthly_pct = float(monthly["monthly_pct"].mean()) if not monthly.empty else 0.0
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    annual = _annual_returns_pct(df)
+    max_annual_gain = float(annual["annual_pct"].max()) if not annual.empty else 0.0
+
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Operaciones", f"{trades:,}")
     c2.metric("Win rate", f"{winrate:.1f}%")
     c3.metric("Ganancia prom. por Mes", f"{avg_monthly_pct:.1f}%")
-    c4.metric("Ganancia prom. por Año", f"{avg_annual_pct:.1f}%")
-    c5.metric("Máx. ganancia anual", f"{max_annual_gain:.1f}%")
+    c4.metric("Máx. ganancia anual", f"{max_annual_gain:.1f}%")
 
-    c6, _ = st.columns([1, 3])
-    with c6:
+    c5, _ = st.columns([1, 3])
+    with c5:
         st.metric("Máx. drawdown", f"{max_dd_pct:.1f}%")
+
+    # =============================
+    # Simulador de inversión (nuevo)
+    # =============================
+    st.divider()
+    st.subheader("Simulador de inversión con rendimiento promedio mensual")
+    monto = st.number_input(
+        "Monto a invertir (MXN)",
+        min_value=0.0,
+        value=0.0,
+        step=100.0,
+        format="%.2f",
+        help="Ingresa el monto a invertir. Se multiplica por la ganancia promedio mensual del periodo filtrado."
+    )
+
+    if monthly.empty:
+        st.info("No hay datos mensuales suficientes para calcular la ganancia promedio mensual.")
+        rendimiento_mensual = 0.0
+    else:
+        rendimiento_mensual = monto * (avg_monthly_pct / 100.0)
+
+    st.success(f"Tu rendimiento promedio al mes sería de: ${rendimiento_mensual:,.2f} MXN")
 
     st.divider()
 
@@ -182,16 +190,20 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
             .encode(
                 x=alt.X("YEAR:O", title="Año"),
                 y=alt.Y("annual_pct:Q", title="% Ganancia o Pérdida"),
-                tooltip=[alt.Tooltip("YEAR:O", title="Año"),
-                         alt.Tooltip("annual_pct:Q", title="%", format=".1f")],
+                tooltip=[
+                    alt.Tooltip("YEAR:O", title="Año"),
+                    alt.Tooltip("annual_pct:Q", title="%", format=".1f")
+                ],
             )
             .properties(height=340)
         )
         labels = (
             alt.Chart(annual_sorted)
             .mark_text(dy=-6)
-            .encode(x="YEAR:O", y="annual_pct:Q",
-                    text=alt.Text("annual_pct:Q", format=".0f"))
+            .encode(
+                x="YEAR:O",
+                y="annual_pct:Q",
+                text=alt.Text("annual_pct:Q", format=".0f"))
         )
         st.altair_chart(chart + labels, use_container_width=True)
     else:
@@ -208,7 +220,8 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
 
         total_trades_m = grp.size().rename("Total de trades")
         winrate_m = (
-            grp["PROFIT"].apply(lambda x: (pd.to_numeric(x, errors="coerce").fillna(0.0) > 0).mean() * 100)
+            grp["PROFIT"]
+            .apply(lambda x: (pd.to_numeric(x, errors="coerce").fillna(0.0) > 0).mean() * 100)
             .rename("% Trades positivos")
         )
 
