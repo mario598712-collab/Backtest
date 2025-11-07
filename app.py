@@ -1,4 +1,4 @@
-# app.py — Una sola estrategia (ruta relativa) con resumen anual y mensual
+# app.py — Una sola estrategia con resumen anual/mensual (archivo ligero)
 # ---------------------------------------------------------------
 # Requisitos: ver requirements.txt
 # Ejecución local: streamlit run app.py
@@ -10,13 +10,12 @@ import streamlit as st
 import altair as alt
 from pathlib import Path
 
-# Configuración de página (poner siempre lo más arriba posible)
-st.set_page_config(page_title="Estrategia • Recomendado y Medio", layout="wide")
+st.set_page_config(page_title="Estrategia • Smart Investment", layout="wide")
 st.title("📈 Estrategia Smart Investment")
 
 st.caption(
-    "En esta estrategia puedes ver el rendimiento con riesgo **RECOMENDADO** y riesgo **MEDIO** "
-    "si tu archivo incluye ambas hojas."
+    "Este dashboard lee un único Excel con hojas 'RECOMENDADO' y/o 'MEDIO'. "
+    "Soporta columnas ligeras: Time, AÑO, DIVISA, Type, Order, LLAVE, Profit/PROFIT y/o Balance."
 )
 
 # =============================
@@ -30,6 +29,7 @@ RUTA_ESTRAT = BASE / "data" / "STREAMLIT.xlsx"  # 👈 Solo un archivo
 # =============================
 
 def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
+    # Maneja Time y/o AÑO
     if "Time" in df.columns:
         df["Time"] = pd.to_datetime(df["Time"], errors="coerce")
         df["AÑO"]  = df["Time"].dt.year
@@ -42,20 +42,29 @@ def _parse_time(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _ensure_profit(df: pd.DataFrame) -> pd.DataFrame:
+    # Prioriza PROFIT si ya existe
     if "PROFIT" in df.columns:
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
-    elif "Profit" in df.columns:
-        df.rename(columns={"Profit": "PROFIT"}, inplace=True)
+        return df
+
+    # Si viene como 'Profit', normaliza a 'PROFIT'
+    if "Profit" in df.columns:
+        df = df.rename(columns={"Profit": "PROFIT"})
         df["PROFIT"] = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
-    elif "Balance" in df.columns:
+        return df
+
+    # Si no hay PROFIT/Profit pero sí Balance, derivamos el PnL por diferencia
+    if "Balance" in df.columns:
         if "Time" in df.columns:
             df = df.sort_values("Time").reset_index(drop=True)
         else:
             df = df.reset_index(drop=True)
         bal = pd.to_numeric(df["Balance"], errors="coerce").ffill().fillna(0.0)
         df["PROFIT"] = bal.diff().fillna(bal)
-    else:
-        df["PROFIT"] = 0.0
+        return df
+
+    # Fallback
+    df["PROFIT"] = 0.0
     return df
 
 def _equity_series(df: pd.DataFrame) -> pd.Series:
@@ -96,22 +105,25 @@ def _monthly_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
-    xl = pd.ExcelFile(ruta_excel, engine="openpyxl")  # 👈 engine forzado
+    xl = pd.ExcelFile(ruta_excel, engine="openpyxl")
     present = {s.lower(): s for s in xl.sheet_names}
 
-    # Cargar en este orden si existen
+    # Cargar en este orden si existen (archivo ligero puede tener sólo una hoja)
     load_order = []
     for key, label in [("recomendado", "Recomendado"), ("medio", "Medio")]:
         if key in present:
             load_order.append((present[key], label))
 
+    # Si no hay las hojas clásicas, intenta cargar la primera que exista
     if not load_order:
-        st.error(f"No encontré hojas 'RECOMENDADO' o 'MEDIO' en: {ruta_excel.name}")
-        st.stop()
+        # Usa la primera hoja y etiqueta como 'Recomendado'
+        first_sheet = xl.sheet_names[0]
+        load_order = [(first_sheet, "Recomendado")]
 
     frames = []
     for sheet_orig, label in load_order:
         df = pd.read_excel(xl, sheet_name=sheet_orig, engine="openpyxl")
+        # Mantiene las columnas ligeras y normaliza PROFIT/AÑO/TIME
         df = _parse_time(df)
         df = _ensure_profit(df)
         df["RIESGO"] = label
@@ -122,37 +134,55 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
 def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     st.header(nombre)
 
-    # --- Filtros ---
+    # --- Filtros principales ---
     st.sidebar.markdown(f"### Filtros — {nombre}")
+
+    # Riesgo (si solo hay una hoja, será un único valor)
     riesgos = list(data["RIESGO"].dropna().unique())
     riesgo = st.sidebar.selectbox(
         f"Perfil de riesgo ({nombre})", options=riesgos, index=0, key=f"riesgo_{nombre}"
     )
+    df = data[data["RIESGO"] == riesgo].copy()
 
-    df_risk = data[data["RIESGO"] == riesgo].copy()
-
-    if df_risk["YEAR"].notna().any():
-        y_min, y_max = int(df_risk["YEAR"].min()), int(df_risk["YEAR"].max())
+    # Años
+    if df["YEAR"].notna().any():
+        y_min, y_max = int(df["YEAR"].min()), int(df["YEAR"].max())
         y1, y2 = st.sidebar.slider(
             f"Rango de años ({nombre})", y_min, y_max, (y_min, y_max), key=f"years_{nombre}"
         )
-        df_risk = df_risk[(df_risk["YEAR"] >= y1) & (df_risk["YEAR"] <= y2)]
+        df = df[(df["YEAR"] >= y1) & (df["YEAR"] <= y2)]
 
-    if "Time" in df_risk.columns:
-        df_risk = df_risk.sort_values("Time").reset_index(drop=True)
+    # Filtros ligeros adicionales si existen
+    if "DIVISA" in df.columns:
+        divisas = sorted([x for x in df["DIVISA"].dropna().unique()])
+        sel_div = st.sidebar.multiselect("DIVISA", options=divisas, default=divisas)
+        df = df[df["DIVISA"].isin(sel_div)]
+
+    if "Type" in df.columns:
+        tipos = sorted([x for x in df["Type"].dropna().unique()])
+        sel_type = st.sidebar.multiselect("Type", options=tipos, default=tipos)
+        df = df[df["Type"].isin(sel_type)]
+
+    if "Order" in df.columns:
+        orders = sorted([x for x in df["Order"].dropna().unique()])
+        sel_ord = st.sidebar.multiselect("Order", options=orders, default=orders)
+        df = df[df["Order"].isin(sel_ord)]
+
+    if "Time" in df.columns:
+        df = df.sort_values("Time").reset_index(drop=True)
 
     # --- KPIs ---
-    pnl = pd.to_numeric(df_risk["PROFIT"], errors="coerce").fillna(0.0)
+    pnl = pd.to_numeric(df["PROFIT"], errors="coerce").fillna(0.0)
     trades = int(len(pnl))
     winrate = float((pnl > 0).mean() * 100) if trades else 0.0
 
-    equity = _equity_series(df_risk)
+    equity = _equity_series(df)
     max_dd_pct = _max_drawdown_pct(equity)
 
-    monthly = _monthly_returns_pct(df_risk)
+    monthly = _monthly_returns_pct(df)
     avg_monthly_pct = float(monthly["monthly_pct"].mean()) if not monthly.empty else 0.0
 
-    annual = _annual_returns_pct(df_risk)
+    annual = _annual_returns_pct(df)
     avg_annual_pct = float(annual["annual_pct"].mean()) if not annual.empty else 0.0
     max_annual_gain = float(annual["annual_pct"].max()) if not annual.empty else 0.0
 
@@ -192,17 +222,14 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         )
         st.altair_chart(chart + labels, use_container_width=True)
     else:
-        st.info(
-            "No fue posible calcular el rendimiento anual. Verifica que haya columna de fecha (`Time`) "
-            "o de año (`AÑO`)."
-        )
+        st.info("No fue posible calcular el rendimiento anual. Asegúrate de incluir 'Time' o 'AÑO'.")
 
     st.divider()
 
     # --- Resumen mensual ---
     st.subheader("Resumen mensual")
-    if "Time" in df_risk.columns and not df_risk.empty:
-        tmp = df_risk.sort_values("Time").copy()
+    if "Time" in df.columns and not df.empty:
+        tmp = df.sort_values("Time").copy()
         tmp["YM"] = tmp["Time"].dt.to_period("M")
         grp = tmp.groupby("YM")
 
@@ -242,7 +269,6 @@ def _safe_load(path: Path):
         return None
 
 data = _safe_load(RUTA_ESTRAT)
-
 if data is None:
     st.stop()
 
