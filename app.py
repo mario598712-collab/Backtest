@@ -159,10 +159,6 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     monthly = _monthly_returns_pct(df)
     avg_monthly_pct = float(monthly["monthly_pct"].mean()) if not monthly.empty else 0.0
 
-    annual = _annual_returns_pct(df)
-    avg_annual_pct = float(annual["annual_pct"].mean()) if not annual.empty else 0.0
-    max_annual_gain = float(annual["annual_pct"].max()) if not annual.empty else 0.0
-
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Operaciones", f"{trades:,}")
     c2.metric("Win rate", f"{winrate:.1f}%")
