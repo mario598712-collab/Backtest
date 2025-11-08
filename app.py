@@ -157,10 +157,11 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         st.metric("Máx. drawdown", f"{max_dd_pct:.1f}%")
 
     # =============================
-    # Simulador de inversión (nuevo)
+    # Simulador de inversión (actualizado)
     # =============================
     st.divider()
     st.subheader("Simulador de inversión con rendimiento promedio mensual")
+
     monto = st.number_input(
         "Monto a invertir (MXN)",
         min_value=0.0,
@@ -170,13 +171,46 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         help="Ingresa el monto a invertir. Se multiplica por la ganancia promedio mensual del periodo filtrado."
     )
 
+    meses = st.number_input(
+        "Meses a invertir",
+        min_value=1,
+        value=12,
+        step=1,
+        help="Periodo (en meses) para proyectar la inversión."
+    )
+
     if monthly.empty:
         st.info("No hay datos mensuales suficientes para calcular la ganancia promedio mensual.")
-        rendimiento_mensual = 0.0
+        avg_pct = 0.0
     else:
-        rendimiento_mensual = monto * (avg_monthly_pct / 100.0)
+        avg_pct = avg_monthly_pct
 
-    st.success(f"Ganancia promedio mensual: ${rendimiento_mensual:,.2f} MXN")
+    # Cálculos
+    ganancia_mensual = monto * (avg_pct / 100.0)
+    ganancia_bruta_total = ganancia_mensual * meses
+    costo_vps_total = 170.0 * meses
+    comision_total = 0.15 * max(ganancia_bruta_total, 0.0)  # 15% sobre ganancias
+    ganancia_neta_total = ganancia_bruta_total - costo_vps_total - comision_total
+    capital_final_aprox = monto + ganancia_neta_total
+
+    colA, colB, colC = st.columns(3)
+    colA.metric("Rendimiento prom. mensual", f"{avg_pct:.2f}%")
+    colB.metric("Ganancia mensual estimada", f"${ganancia_mensual:,.2f} MXN")
+    colC.metric("Meses", f"{meses}")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ganancia bruta total", f"${ganancia_bruta_total:,.2f} MXN")
+    col2.metric("Comisión (15% ganancias)", f"- ${comision_total:,.2f} MXN")
+    col3.metric("Costo VPS total", f"- ${costo_vps_total:,.2f} MXN")
+
+    st.success(f"Ganancia neta estimada: ${ganancia_neta_total:,.2f} MXN")
+    st.metric("💰 Capital final aproximado", f"${capital_final_aprox:,.2f} MXN")
+
+    st.caption(
+        "Notas: la proyección usa el promedio mensual del rango de años filtrado. "
+        "La comisión se calcula sobre las ganancias brutas; el costo de VPS considera $170/mes. "
+        "Los resultados son estimados y no garantizan rendimientos futuros."
+    )
 
     st.divider()
 
