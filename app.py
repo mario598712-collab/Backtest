@@ -114,7 +114,7 @@ def _load_data_from_path(ruta_excel: Path) -> pd.DataFrame:
         df = pd.read_excel(xl, sheet_name=sheet_orig, engine="openpyxl")
         df = _parse_time(df)
         df = _ensure_profit(df)
-        df["RIESGO"] = label  # se conserva, no se usa para filtrar
+        df["RIESGO"] = label
         frames.append(df)
 
     return pd.concat(frames, ignore_index=True)
@@ -157,7 +157,7 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         st.metric("Máx. drawdown", f"{max_dd_pct:.1f}%")
 
     # =============================
-    # Simulador de inversión (actualizado)
+    # Simulador de inversión
     # =============================
     st.divider()
     st.subheader("Simulador de inversión con rendimiento promedio mensual")
@@ -188,9 +188,8 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     # Cálculos
     ganancia_mensual = monto * (avg_pct / 100.0)
     ganancia_bruta_total = ganancia_mensual * meses
-    costo_vps_total = 170.0 * meses
     comision_total = 0.15 * max(ganancia_bruta_total, 0.0)  # 15% sobre ganancias
-    ganancia_neta_total = ganancia_bruta_total - costo_vps_total - comision_total
+    ganancia_neta_total = ganancia_bruta_total - comision_total
     capital_final_aprox = monto + ganancia_neta_total
 
     colA, colB, colC = st.columns(3)
@@ -198,17 +197,16 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     colB.metric("Ganancia mensual estimada", f"${ganancia_mensual:,.2f} MXN")
     colC.metric("Meses", f"{meses}")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     col1.metric("Ganancia bruta total", f"${ganancia_bruta_total:,.2f} MXN")
     col2.metric("Comisión (15% ganancias)", f"- ${comision_total:,.2f} MXN")
-    col3.metric("Costo VPS total", f"- ${costo_vps_total:,.2f} MXN")
 
     st.success(f"Ganancia neta estimada: ${ganancia_neta_total:,.2f} MXN")
     st.metric("💰 Capital final aproximado", f"${capital_final_aprox:,.2f} MXN")
 
     st.caption(
         "Notas: la proyección usa el promedio mensual del rango de años filtrado. "
-        "La comisión se calcula sobre las ganancias brutas; el costo de VPS considera $170/mes. "
+        "La comisión se calcula sobre las ganancias brutas. "
         "Los resultados son estimados y no garantizan rendimientos futuros."
     )
 
@@ -293,5 +291,3 @@ if data is None:
     st.stop()
 
 _render_dashboard(data, nombre="Estrategia")
-
-#    Time  AÑO  DIVISA  Type  Order  LLAVE  Profit  PROFIT  Balance
