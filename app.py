@@ -14,8 +14,6 @@ st.set_page_config(page_title="Estrategia • Smart Investment", layout="wide")
 st.title("📈 Estrategia Smart Investment")
 
 st.caption(
-    "Este dashboard lee un único Excel con hojas 'RECOMENDADO' y/o 'MEDIO'. "
-    "Soporta columnas ligeras: Time, AÑO, DIVISA, Type, Order, LLAVE, Profit/PROFIT y/o Balance. "
     "El único filtro disponible es AÑO."
 )
 
