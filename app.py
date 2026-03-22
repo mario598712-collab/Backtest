@@ -21,7 +21,7 @@ st.caption(
 # RUTA RELATIVA DE TU ARCHIVO
 # =============================
 BASE = Path(__file__).parent
-RUTA_ESTRAT = BASE / "data" / "STREAMLIT.xlsx"  # 👈 Solo un archivo
+RUTA_ESTRAT = BASE / "data" / "STREAMLIT_VANTAGE.xlsx"  # 👈 Solo un archivo
 
 # =============================
 # UTILIDADES
