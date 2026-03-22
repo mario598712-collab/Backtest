@@ -186,7 +186,7 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     # Cálculos
     ganancia_mensual = monto * (avg_pct / 100.0)
     ganancia_bruta_total = ganancia_mensual * meses
-    comision_total = 0.15 * max(ganancia_bruta_total, 0.0)  # 15% sobre ganancias
+    comision_total = 0.25 * max(ganancia_bruta_total, 0.0)  # 25% sobre ganancias
     ganancia_neta_total = ganancia_bruta_total - comision_total
     capital_final_aprox = monto + ganancia_neta_total
 
@@ -197,7 +197,7 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
 
     col1, col2 = st.columns(2)
     col1.metric("Ganancia bruta total", f"${ganancia_bruta_total:,.2f} MXN")
-    col2.metric("Comisión (15% ganancias)", f"- ${comision_total:,.2f} MXN")
+    col2.metric("Comisión (25% ganancias)", f"- ${comision_total:,.2f} MXN")
 
     st.success(f"Ganancia neta estimada: ${ganancia_neta_total:,.2f} MXN")
     st.metric("💰 Capital final aproximado", f"${capital_final_aprox:,.2f} MXN")
