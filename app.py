@@ -69,24 +69,6 @@ def _max_drawdown_pct(equity: pd.Series) -> float:
     m = dd_pct.min() if not dd_pct.empty else 0.0
     return abs(float(m)) if pd.notna(m) else 0.0
 
-def _drawdown_series(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula la curva de drawdown en el tiempo"""
-    tmp = df.copy()
-    if "Time" in tmp.columns:
-        tmp = tmp.sort_values("Time")
-    
-    equity = _equity_series(tmp)
-    peak = equity.cummax().replace(0, np.nan)
-    # Calculamos el DD como valor negativo para que la gráfica vaya hacia abajo
-    tmp["DRAWDOWN_PCT"] = (equity / peak - 1.0) * 100.0
-    tmp["DRAWDOWN_PCT"] = tmp["DRAWDOWN_PCT"].fillna(0.0)
-    
-    # Si no tiene columna Time, creamos un índice numérico para el eje X
-    if "Time" not in tmp.columns:
-        tmp["Time"] = tmp.index
-        
-    return tmp[["Time", "DRAWDOWN_PCT"]]
-
 def _annual_returns_pct(df: pd.DataFrame) -> pd.DataFrame:
     if "YEAR" not in df.columns or df["YEAR"].isna().all():
         return pd.DataFrame({"YEAR": [], "annual_pct": []})
@@ -140,6 +122,10 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
     st.sidebar.markdown(f"### Filtro — {nombre}")
 
     df = data.copy()
+
+    # Es importante ordenar por tiempo para que los gráficos temporales tengan sentido
+    if "Time" in df.columns:
+        df = df.sort_values("Time").reset_index(drop=True)
 
     if df["YEAR"].notna().any():
         y_min, y_max = int(df["YEAR"].min()), int(df["YEAR"].max())
@@ -228,6 +214,44 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
 
     st.divider()
 
+    # =========================================================
+    # NUEVO: Gráfico de Crecimiento de Capital en el Tiempo
+    # =========================================================
+    st.subheader("📈 Crecimiento de Capital en el Tiempo")
+    if not df.empty:
+        df_capital = df.copy()
+        df_capital["Capital"] = equity.values
+        
+        # Si existe columna de fecha, la usamos para el eje X, si no, usamos el índice de operaciones
+        if "Time" in df_capital.columns:
+            x_axis = alt.X("Time:T", title="Fecha")
+            tooltip_x = alt.Tooltip("Time:T", title="Fecha", format="%Y-%m-%d %H:%M")
+        else:
+            df_capital = df_capital.reset_index()
+            x_axis = alt.X("index:Q", title="Número de Operación")
+            tooltip_x = alt.Tooltip("index:Q", title="Operación Nro")
+
+        capital_chart = (
+            alt.Chart(df_capital)
+            .mark_line(color="#2ca02c", strokeWidth=2.5)
+            .encode(
+                x=x_axis,
+                y=alt.Y("Capital:Q", title="Balance / Capital Acumulado"),
+                tooltip=[
+                    tooltip_x,
+                    alt.Tooltip("Capital:Q", title="Capital", format=",.2f"),
+                    alt.Tooltip("PROFIT:Q", title="Beneficio Operación", format=",.2f")
+                ]
+            )
+            .properties(height=350)
+            .interactive() # Permite hacer zoom y arrastrar el gráfico
+        )
+        st.altair_chart(capital_chart, use_container_width=True)
+    else:
+        st.info("No hay datos disponibles para graficar el crecimiento del capital.")
+
+    st.divider()
+
     # --- Gráfico anual ---
     st.subheader("% Ganancia o Pérdida por Año")
     if not annual.empty:
@@ -256,34 +280,6 @@ def _render_dashboard(data: pd.DataFrame, nombre: str = "Estrategia"):
         st.altair_chart(chart + labels, use_container_width=True)
     else:
         st.info("No fue posible calcular el rendimiento anual. Asegúrate de incluir 'Time' o 'AÑO'.")
-
-    st.divider()
-
-    # --- Gráfico de Drawdown en el tiempo ---
-    st.subheader("Evolution del Drawdown (%) en el Tiempo")
-    if not df.empty:
-        dd_df = _drawdown_series(df)
-        
-        # Tipo de eje X dinámico dependiendo de si hay datos 'Time' (Fecha) o es índice numérico
-        x_axis_type = "T" if "Time" in data.columns else "Q"
-        x_axis_title = "Tiempo" if "Time" in data.columns else "Número de Operación"
-        
-        dd_chart = (
-            alt.Chart(dd_df)
-            .mark_area(color="rgba(219, 68, 85, 0.4)", stroke="rgb(219, 68, 85)") # Color rojizo de alerta
-            .encode(
-                x=alt.X(f"Time:{x_axis_type}", title=x_axis_title),
-                y=alt.Y("DRAWDOWN_PCT:Q", title="Drawdown (%)"),
-                tooltip=[
-                    alt.Tooltip(f"Time:{x_axis_type}", title=x_axis_title),
-                    alt.Tooltip("DRAWDOWN_PCT:Q", title="DD (%)", format=".2f")
-                ]
-            )
-            .properties(height=280)
-        )
-        st.altair_chart(dd_chart, use_container_width=True)
-    else:
-        st.info("No hay datos disponibles para calcular la gráfica de Drawdown.")
 
     st.divider()
 
